@@ -1,0 +1,33 @@
+# === Entornos virtuales ===
+env/
+.venv/
+
+# === Archivos de Python compilados ===
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.pdb
+
+# === Archivos de compilación / distribución ===
+build/
+dist/
+*.egg-info/
+*.egg
+*.manifest
+*.spec
+
+# === Ejecutables (PyInstaller, cx_Freeze, etc.) ===
+*.exe
+*.dll
+*.so
+*.dylib
+
+# === Archivos de logs ===
+*.log
+
+# === Configuración de VS Code ===
+.vscode/
+
+# === Archivos de entorno (variables locales) ===
+.env
