@@ -2,36 +2,49 @@ import os
 import tkinter as tk
 from tkinter import filedialog, scrolledtext, messagebox
 from tkinter import ttk
-from transcriptor import transcribir_archivo
-
-import threading
+from transcriptor import _worker_transcribir
+import multiprocessing as mp  # proceso separado para poder cancelar
 
 class TranscriptorGUI:
     def __init__(self):
         self.ventana = tk.Tk()
         self.ventana.title("TranscriptoApp - Transcriptor Offline")
-        self.ventana.geometry("680x520")
+        self.ventana.geometry("700x520")
 
-        # Lista desplegable de modelos
+        # Estado del trabajo en proceso/cancelación
+        self.proc = None
+        self.queue = None
+
+        # 1) Lista desplegable de modelos
         modelos = ["tiny", "base", "small", "medium", "large"]
-        self.modelo_var = tk.StringVar(value="base")  # por defecto: el actual
+        self.modelo_var = tk.StringVar(value="base")
         frame_modelo = tk.Frame(self.ventana)
         frame_modelo.pack(pady=(10, 0))
         tk.Label(frame_modelo, text="Modelo Whisper:").grid(row=0, column=0, padx=(0, 6))
         self.combo_modelo = ttk.Combobox(frame_modelo, textvariable=self.modelo_var, values=modelos, state="readonly", width=12)
         self.combo_modelo.grid(row=0, column=1)
 
-        # Botón principal
-        self.btn_cargar = tk.Button(self.ventana, text="Abrir audio y transcribir", command=self.transcribir_audio)
-        self.btn_cargar.pack(pady=10)
+        # Botones principales
+        frame_top = tk.Frame(self.ventana)
+        frame_top.pack(pady=10)
+        self.btn_cargar = tk.Button(frame_top, text="Abrir audio y transcribir", command=self.transcribir_audio)
+        self.btn_cargar.grid(row=0, column=0, padx=5)
+        self.btn_cancelar = tk.Button(frame_top, text="Cancelar", state="disabled", command=self.cancelar)
+        self.btn_cancelar.grid(row=0, column=1, padx=5)
 
-        # Label con el nombre del archivo seleccionado
+        # 2) Label con el nombre del archivo seleccionado
         self.lbl_archivo = tk.Label(self.ventana, text="Ningún archivo seleccionado", anchor="w")
         self.lbl_archivo.pack(fill="x", padx=10)
 
-        # Label de estado
+        # 3) Label de estado
         self.lbl_estado = tk.Label(self.ventana, text="Listo.", anchor="w", fg="#555")
-        self.lbl_estado.pack(fill="x", padx=10, pady=(0, 8))
+        self.lbl_estado.pack(fill="x", padx=10, pady=(0, 4))
+
+        # Barra de progreso (indeterminada)
+        self.progress = ttk.Progressbar(self.ventana, mode="indeterminate")
+        self.progress.pack(fill="x", padx=10)
+        self.progress.stop()
+        self.progress.pack_forget()  # oculta inicialmente
 
         # Área de texto
         self.text_area = scrolledtext.ScrolledText(self.ventana, wrap=tk.WORD, width=80, height=18)
@@ -47,45 +60,101 @@ class TranscriptorGUI:
         self.btn_guardar = tk.Button(self.frame_botones, text="Guardar", command=self.guardar_texto)
         self.btn_guardar.grid(row=0, column=1, padx=5)
 
+    # -------- utilidades GUI --------
     def _set_estado(self, texto, color="#555"):
         self.lbl_estado.config(text=texto, fg=color)
         self.ventana.update_idletasks()
 
+    def _mostrar_progreso(self, mostrar=True):
+        if mostrar:
+            self.progress.pack(fill="x", padx=10)
+            self.progress.start(10)  # velocidad de la marquesina
+        else:
+            self.progress.stop()
+            self.progress.pack_forget()
+
+    # -------- acciones --------
     def transcribir_audio(self):
         archivo = filedialog.askopenfilename(filetypes=[("Archivos de audio", "*.mp3 *.wav *.m4a *.flac *.ogg *.m4b *.mp4 *.aac")])
         if not archivo:
             return
 
-        # Mostrar nombre de archivo
         self.lbl_archivo.config(text=os.path.basename(archivo))
+        self._set_estado("Preparando transcripción…", "#0066cc")
 
-        # Mensajes de estado y deshabilitar botón mientras procesa
-        self._set_estado("Procesando transcripción… esto puede tardar unos minutos.", "#0066cc")
+        # Deshabilitar/activar botones
         self.btn_cargar.config(state="disabled")
+        self.btn_cancelar.config(state="normal")
+        self._mostrar_progreso(True)
 
         modelo = self.modelo_var.get()
 
-        # Evitar congelar la UI: procesa en hilo aparte
-        def _worker():
+        # Crear proceso y cola para recibir el resultado
+        self.queue = mp.Queue()
+        self.proc = mp.Process(target=_worker_transcribir, args=(archivo, modelo, self.queue))
+        self.proc.start()
+        # empezar a revisar periódicamente si hay resultado
+        self.ventana.after(200, self._revisar_resultado)
+
+    def _revisar_resultado(self):
+        if self.queue is None:
+            return
+        try:
+            texto = self.queue.get_nowait()
+        except Exception:
+            # Si el proceso sigue vivo, seguimos esperando
+            if self.proc is not None and self.proc.is_alive():
+                self._set_estado("Transcribiendo… esto puede tardar dependiendo del tamaño del audio.", "#0066cc")
+                self.ventana.after(400, self._revisar_resultado)
+                return
+            else:
+                # Sin texto y proceso muerto (raro): algo falló
+                self._finalizar_trabajo("ERROR: El proceso terminó sin devolver resultado.")
+                return
+
+        # Llegó resultado
+        if isinstance(texto, str) and texto.startswith("ERROR:"):
+            self._finalizar_trabajo(texto, es_error=True)
+        else:
+            self._finalizar_trabajo(texto)
+
+    def _finalizar_trabajo(self, texto, es_error=False, cancelado=False):
+        # Limpiar proceso/cola
+        if self.proc is not None:
+            if self.proc.is_alive():
+                self.proc.join(timeout=0.1)
+            self.proc = None
+        self.queue = None
+
+        # Mostrar texto (si no fue cancelado)
+        self.text_area.delete("1.0", tk.END)
+        if cancelado:
+            self.text_area.insert(tk.END, "")
+        else:
+            self.text_area.insert(tk.END, texto)
+
+        # Estado final + UI
+        if cancelado:
+            self._set_estado("Transcripción cancelada por el usuario.", "#cc7a00")
+        elif es_error:
+            self._set_estado("Ocurrió un problema al transcribir. Revisa el archivo o el modelo.", "#cc0000")
+        else:
+            self._set_estado("¡Listo! Transcripción terminada.", "#117733")
+
+        # ✅ Desactivar siempre “Cancelar” cuando ya hay un resultado
+        self.btn_cancelar.config(state="disabled")
+
+        self._mostrar_progreso(False)
+        self.btn_cargar.config(state="normal")
+
+    def cancelar(self):
+        # Termina el proceso y marca como cancelado
+        if self.proc is not None and self.proc.is_alive():
             try:
-                texto = transcribir_archivo(archivo, model_name=modelo)
-            except Exception as e:
-                texto = f"Error en la transcripción: {e}"
-
-            # Volver al hilo de la GUI
-            def _finalizar():
-                self.text_area.delete("1.0", tk.END)
-                self.text_area.insert(tk.END, texto)
-                # Mensaje final
-                if texto.startswith("Error"):
-                    self._set_estado("Ocurrió un problema al transcribir. Revisa el archivo o el modelo.", "#cc0000")
-                else:
-                    self._set_estado("¡Listo! Transcripción terminada.", "#117733")
-                self.btn_cargar.config(state="normal")
-
-            self.ventana.after(0, _finalizar)
-
-        threading.Thread(target=_worker, daemon=True).start()
+                self.proc.terminate()
+            except Exception:
+                pass
+        self._finalizar_trabajo("", cancelado=True)
 
     def copiar_texto(self):
         self.ventana.clipboard_clear()

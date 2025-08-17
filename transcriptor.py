@@ -19,11 +19,20 @@ def transcribir_archivo(ruta_audio: str, model_name: str = "base") -> str:
     :param model_name: Modelo whisper a usar (tiny, base, small, medium, large)
     :return: Texto transcrito (limpio al inicio y al final)
     """
+    modelo = get_model(model_name)
+    resultado = modelo.transcribe(ruta_audio)
+    texto = resultado.get("text", "")
+    # Limpieza: quita espacios/saltos al inicio y fin
+    return (texto or "").strip()
+
+# === Soporte para ejecución en subproceso ===
+def _worker_transcribir(ruta_audio: str, model_name: str, queue):
+    """
+    Función objetivo del proceso hijo: hace la transcripción y coloca el texto en la queue.
+    Cualquier excepción se devuelve como cadena que empiece con 'ERROR:'.
+    """
     try:
-        modelo = get_model(model_name)
-        resultado = modelo.transcribe(ruta_audio)
-        texto = resultado.get("text", "")
-        # Limpieza: quita espacios/saltos al inicio y fin
-        return (texto or "").strip()
+        texto = transcribir_archivo(ruta_audio, model_name=model_name)
+        queue.put(texto)
     except Exception as e:
-        return f"Error en la transcripción: {e}"
+        queue.put(f"ERROR: {e}")
