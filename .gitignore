@@ -15,7 +15,7 @@ dist/
 *.egg-info/
 *.egg
 *.manifest
-*.spec
+#*.spec
 
 # === Ejecutables (PyInstaller, cx_Freeze, etc.) ===
 *.exe
