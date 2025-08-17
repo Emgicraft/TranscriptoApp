@@ -9,7 +9,16 @@ class TranscriptorGUI:
     def __init__(self):
         self.ventana = tk.Tk()
         self.ventana.title("TranscriptoApp - Transcriptor Offline")
-        self.ventana.geometry("700x520")
+        # Dimensiones deseadas
+        ancho, alto = 700, 500
+        # Tamaño de pantalla
+        pant_ancho = self.ventana.winfo_screenwidth()
+        pant_alto = self.ventana.winfo_screenheight()
+        # Coordenadas para centrar
+        x = (pant_ancho // 2) - (ancho // 2)
+        y = (pant_alto // 2) - (alto // 2)
+        # Aplicar geometría centrada
+        self.ventana.geometry(f"{ancho}x{alto}+{x}+{y}")
 
         # Estado del trabajo en proceso/cancelación
         self.proc = None
@@ -32,11 +41,11 @@ class TranscriptorGUI:
         self.btn_cancelar = tk.Button(frame_top, text="Cancelar", state="disabled", command=self.cancelar)
         self.btn_cancelar.grid(row=0, column=1, padx=5)
 
-        # 2) Label con el nombre del archivo seleccionado
+        # Label con el nombre del archivo seleccionado
         self.lbl_archivo = tk.Label(self.ventana, text="Ningún archivo seleccionado", anchor="w")
         self.lbl_archivo.pack(fill="x", padx=10)
 
-        # 3) Label de estado
+        # Label de estado
         self.lbl_estado = tk.Label(self.ventana, text="Listo.", anchor="w", fg="#555")
         self.lbl_estado.pack(fill="x", padx=10, pady=(0, 4))
 
