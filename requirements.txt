@@ -1,6 +1,1 @@
-openai-whisper
-
-torch
-
-# En Windows viene por defecto con la versión de Python
-# tk
+openai_whisper==20250625
