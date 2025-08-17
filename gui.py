@@ -2,7 +2,7 @@ import os
 import tkinter as tk
 from tkinter import filedialog, scrolledtext, messagebox
 from tkinter import ttk
-from transcriptor import _worker_transcribir
+from transcriptor import _worker_transcribir  # importamos la función del worker
 import multiprocessing as mp  # proceso separado para poder cancelar
 
 class TranscriptorGUI:
